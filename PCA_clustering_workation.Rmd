@@ -1,0 +1,312 @@
+---
+title: "Workation"
+author: "Natalia Miela"
+date: "2022-12-26"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# PCA and Clustering
+
+Workation is a data set that provides a ranking together with variables that were taken into account when choosing the best cities for workation (work and vacation). This data set contains 10 variables, which are taken into account when choosing the best city for a workation. The data has been downloaded from Kaggle website. \
+
+In this project, I will analyze the data set and perform cluster analysis to investigate whether the ranking provided in the raw data file is somehow related to the clusters that I obtained. 
+
+## Exploratory Data Analysis & Clearing the Data
+
+```{r , include=FALSE}
+#load packages
+library(NbClust)
+library(factoextra)
+library(caret)
+library(GGally)
+library(corrplot)
+library(gridExtra)
+library(hopkins)
+library(ClusterR)
+library(RColorBrewer)
+library(scales)
+library(usethis)
+library(devtools)
+library(cluster)
+```
+
+
+```{r ,include = FALSE}
+# Load the data
+raw_data <- read.csv("/Users/nataliamiela/Documents/master/UL/clustering project/workation.csv", sep =';')
+```
+```{r}
+# Preview the data
+head(raw_data)
+summary(raw_data)
+```
+I decided to change and shorten the column names. 
+```{r}
+colnames(raw_data)
+```
+```{r}
+# Shorten column names for easier use
+colnames(raw_data)[4] <- 'WiFi'
+colnames(raw_data)[5] <- 'CoWorking'
+colnames(raw_data)[6] <- 'Coffe'
+colnames(raw_data)[7] <- 'Taxi'
+colnames(raw_data)[8] <- 'Beer'
+colnames(raw_data)[9] <- 'Accommodation'
+colnames(raw_data)[10] <- 'Food'
+colnames(raw_data)[11] <- 'Sunshine'
+colnames(raw_data)[12] <- 'Attractions'
+colnames(raw_data)[13] <- 'Instagram'
+
+colnames(raw_data)
+```
+
+
+Here I would like to introduce the variables:\
+
+Wifi is an average Wifi Speed,\
+CoWorking is number of coworking spaces,\
+Coffee is an average price of buying a coffee,\
+Taxi is an average proce of taxi,\
+Beer is an average price for two beers in a bar,\
+Accommodation is an average price of 1 bedroom apartment per month,\
+Food is an average cost of local meal and mid-level restaurant,\
+Sunshine is an average number of sunshine hours,\
+Attractions is number of 'Thinks to do' on TripAdvisor,\
+Instagram is number of photos with # hashtag.
+
+
+Now, I would like to check whether all data is of the type numeric.
+
+```{r}
+for (i in 1:ncol(raw_data)){
+  print(i)
+  print(class(raw_data[,i]))
+}
+
+```
+I removed the columns Country and City (number 2 and 3), as their class is character and they are not informative. Moreover, I also removed the Ranking (number 1) column for clustering. The new shortened data set will be called data. 
+
+```{r}
+data <- raw_data[,4:13]
+head(data)
+```
+Then, I checked for NAs:
+
+```{r}
+apply(data, 2, function(x) any(is.na(x))) 
+```
+There were no NAs in my dataset, thus I could proceed to check for outliers. 
+```{r}
+par(mfrow = c(2, 5))
+for (i in 1:ncol(data)){
+  boxplot(data[,i], col = 'grey', ylab = colnames(data[i]))
+}
+par(mfrow = c(1, 1))
+```
+There are some outliers, however, there are not many of them and not all variables have outliers. I will take it into account when choosing a clustering algorithm.
+The data set has high dimension (10 variables), thus I decided to first first reduce the dimension using PCA and then to perform clustering. 
+
+## PCA
+
+Let's see what is the correlation between variables.
+```{r}
+corr_data <- cor(data, method="pearson") # nominal values
+print(corr_data, digits=2)
+```
+
+And the correlation plot:
+```{r}
+corrplot(corr_data, type = "lower", order = "alphabet", tl.col = "black", tl.cex = 1, col=colorRampPalette(c("#99FF33", "#CC0066", "black"))(200))
+
+```
+
+Beer, Coffee, Food, Taxi and  WiFi have strong correlation with Accommodation. \
+CoWorking and Instagram have a strong correlation with Attractions.\
+Coffee and Food have a strong correlation with Beer. 
+Food has a strong correlation with Coffee.\
+Instagram has a strong correlation with CoWorking. \
+Taxi and WiFi have both strong correlation with Food.\ 
+
+
+Then, I standardized the data: 
+```{r}
+preproc1 <- preProcess(data, method=c("center", "scale"))
+data_s <- predict(preproc1, data)
+
+```
+
+And calculated eigenvalues on the basis of covariance:
+```{r}
+data_cov<-cov(data_s)
+raw_data_eigen<-eigen(data_cov)
+raw_data_eigen$values
+head(raw_data_eigen$vectors)
+```
+There are 3 eigenvalues with value above 1, these should be chosen for PCA.
+
+```{r}
+pca1<-prcomp(data_s, center=FALSE, scale=FALSE)
+pca1
+```
+
+```{r}
+# PCA summary
+pca1$rotation
+summary(pca1) 
+```
+First three principal components represent 73% of the variability in the data.  
+
+```{r}
+fviz_eig(pca1)
+```
+
+```{r}
+fviz_pca_var(pca1, repel = TRUE, col.var="contrib")+scale_color_gradient2(low="#99FF33", mid="#CC0066", high="black", midpoint=5)
+
+```
+
+
+The darkest variables are the most important. Thus we can consider Accommodation, Instagram, CoWorking, Attractions, Food, Beer and Coffee as most important.
+
+```{r}
+# PCs contribution
+par(mfrow = c(1, 3))
+fviz_contrib(pca1, "var", axes=1, xtickslab.rt=90) 
+fviz_contrib(pca1, "var", axes=2, xtickslab.rt=90) 
+fviz_contrib(pca1, "var", axes=3, xtickslab.rt=90)
+par(mfrow = c(1, 1))
+
+
+```
+
+Main contribution to the PCs:
+
+1st PC: Accommodation, Food, Beer and Coffee,\
+2nd PC: CoWorking, Attractions and Instagram,\
+3rd PC: Mainly Sunshine and a smaller percentage from Beer,\
+
+Now, I will do clustering on the 3 PCs.
+
+```{r}
+pc_data <- as.data.frame(pca1$x[,1:3])
+```
+## Clustering 
+
+Let's check whether the data is clusterable using Hopkins statistics. 
+```{r}
+# Check whether the data is clustarable
+hopkins(pc_data, m=nrow(pc_data)-1)
+```
+The data is definitely clusterable as the Hopkins statistics is close to 1. 
+
+Let's find out what is the best number of clusters
+```{r}
+opt1 <- Optimal_Clusters_KMeans(pc_data, max_clusters=10, plot_clusters = TRUE)
+opt2 <- Optimal_Clusters_KMeans(pc_data, max_clusters=10, plot_clusters=TRUE, criterion="silhouette")
+
+```
+
+Since Silhouette is the highest (0.6) for 2 clusters, this will be my preferable choice. I could also analyze 3 clusters, however the difference between 0.6 for 2 clusters and 0.44 for 3 clusters is significant. Moreover, smaller number of clusters reduces complexity. \
+By choosing 2 clusters I would like to verify the ranking for best workation city. I imagine that clustering should split the ranking into two parts- top in ranking and low in ranking. I would like to check whether the ranking will be confirmed with my clusters. \
+
+
+I chose PAM (k-medoids) clustering as it is more robust to outliers and noise.
+``` {r}
+k <- pam(pc_data, 2)
+summary(k)
+
+palette(alpha(brewer.pal(9,'Set1'), 0.5))
+plot(pc_data, col=k$clust, pch=16)
+```
+
+We can see above six 2D projections of data, which are in a 3D space. Clearly there might a couple of outliers, especially in a cluster colored in blue. \
+
+Let's visualize the clusters:
+
+```{r}
+# Plot clusters
+fviz_cluster(k, geom = "point", ellipse.type = "norm")
+fviz_cluster(k, geom = "point", ellipse.type = "convex")
+```
+
+Then, I added cluster assignment to the original data.
+``` {r}
+# Cluster sizes
+sort(table(k$cluster))
+clust <- names(sort(table(k$cluster)))
+
+pc <- cbind(pc_data, k$cluster)
+
+colnames(pc)[4] <- 'cluster_number'
+
+# Combine PC data with cities names
+final_data <- cbind(raw_data, pc)
+final_data <- final_data[,c(1:13,17)]
+
+# First cluster
+cluster_1 <- final_data[final_data$cluster_number == '1',]
+# Second Cluster
+cluster_2 <- final_data[final_data$cluster_number == '2',]
+```
+Now it's time for some analysis. As I mentioned before, I am curious whether my clustering splits the ranking into two parts- top in ranking and low in ranking. \
+So let's see..
+
+```{r}
+cluster_1
+```
+
+```{r}
+cluster_2
+```
+It is easy to see that cluster 1 contains cities that are the top ones in the ranking. However, when looking at the first 10 rows, I do see that some of the levels in the ranking are missing, i.e. some observations were assigned to the second cluster, even though ranking would assume that they should be in the first cluster. For instance level 4 is missing in the top 10. Then level 12 is missing in the top 20...\
+Now I would like to see the cities, which were 'misplaced' when looking at the ranking. I will only inspect the cities that are not on the 'boundaries' between these two clusters, i.e. the ones that are not in the middle of the ranking. \
+The ranking has 147 levels, thus let's explore the top 30 and the bottom 30, leaving 87 cities on the 'boundary'.
+
+
+From the top 30 in the ranking, there are #4, #12, #22, #30 levels missing.\
+Let's check what are these cities. 
+```{r}
+subset(raw_data, subset = Ranking %in% c(4,12,22,30))
+```
+So it is Barcelona, Madrid, Singapore and Los Angeles that have been assigned to the low ranking cluster, whereas when looking at the ranking, they should be in the top 30.
+
+
+
+From the bottom 30 in the ranking, there are #141, #137, #130, #121, #115, #113 levels missing.
+Let's check what are these countries.
+
+```{r}
+subset(raw_data, subset = Ranking %in% c(141,137,130,121,115,113))
+```
+So it is Hvar, San Jose, Vientiane, La Paz, Muscat and Kuwait Citi that have been assigned to the top ranking cluster, whereas when looking at the ranking, they should be in the low 30.\
+
+
+Now, I would like to calculate mean for the variables in the two clusters.\
+The best scenario would be:\
+i) the highest value for: WiFi, CoWorking, Sunshine, Attractions and Instagram\
+ii) the lowest value for: Coffee, Taxi, Beer and Accommodation\
+
+```{r}
+round(colMeans(cluster_1[4:13]),2)
+```
+```{r}
+round(colMeans(cluster_2[4:13]),2)
+```
+## Conclusion
+
+Cluster 2 has higher mean for WiFi, CoWorking, Instagram and Attractions when compared to the cluster 1. Thus cluster 2 will contain preferable workation locations based on WiFi, CoWorking, Instagram and Attractions variables. However, WiFi was considered as 'not so important' variable in the PCA. \
+It is worth to notice that CoWorking, Instagram and Attractions (all but WiFi) are the main contributors to the 2nd PC. \
+
+Cluster 1 has higher mean for Sunshine and lower mean for Coffee, Taxi, Beer, Accommodation and Food when compared to the cluster 2. Thus cluster 1 will contain preferable workation locations based on Coffee, Taxi, Beer, Accommodation and Food variables. However, Taxi was considered as 'not so important' variable in the PCA.\
+It is worth to notice that Accommodation, Food, Beer and Coffee (all but Taxi) are the main contributors to the 1st PC. \
+
+By looking at this comparison, one can think that preferable workation locations are the ones that are cheap. Someone who is looking to work and live abroad will probably search for a city, where cost of living is pretty low. Accommodation seems to be the most important variable as it is usually the most expensive part of regular expenses. \
+It doesn't surprise me that Bangkok is the highest in the ranking, as Thailand is very cheap!
+Although, Barcelona is 4th in the ranking, it belongs to the cluster 2. The average prices for Taxi, Beer, Accommodation and Food in Barcelona are significantly higher to the average values for the cluster 1. The average prices in Barcelona are definitely closer to the average values from the cluster 2, which means that it shouldn't be considered as one of the best cities for workation. 
+
+
