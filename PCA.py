@@ -5,10 +5,18 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+from sklearn_extra.cluster import KMedoids
+from sklearn.metrics import silhouette_score
 from mlxtend.plotting import plot_pca_correlation_graph
+from IPython.display import display
+
+from numpy.random import uniform
+
+from helpers import hopkins_statistic
 
 # Load the data
-raw_data = pd.read_csv("workation.csv", sep=';')
+raw_data = pd.read_csv("Final_project_RR_23/workation.csv", sep=';')
 
 # Rename columns for easier use
 raw_data.rename(columns={
@@ -79,3 +87,95 @@ plt.bar(
 
 # Print eigenvalues
 display(pca.explained_variance_)
+
+# create data for PCA
+data_ = pca.transform(data_s)
+data_pca = data_[:, 0:3]
+data_pca = pd.DataFrame(data_pca)
+
+# Calculate the hopkins statistics
+print(hopkins_statistic(data_pca))
+
+# Prepare data for clustering
+data_pca = np.array(data_pca)
+
+# Check Silhouette values
+range_n_clusters = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+silhouette_avg = []
+for num_clusters in range_n_clusters:
+    # perform kmeans
+    kmeans = KMeans(n_clusters=num_clusters, n_init='auto')
+    kmeans.fit(data_pca)
+    cluster_labels = kmeans.labels_
+
+    # calculate silhouette score
+    silhouette_avg.append(silhouette_score(data_pca, cluster_labels))
+
+plt.plot(range_n_clusters, silhouette_avg, 'bx-')
+plt.xlabel('Values of K')
+plt.ylabel('Silhouette score')
+plt.title('Silhouette analysis For Optimal k')
+plt.show()
+
+# Use 'elbow method' for variance explained by different number of clusters
+range_n_clusters = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+distortions = []
+for num_clusters in range_n_clusters:
+    # initialise kmeans
+    kmeans = KMeans(n_clusters=num_clusters, n_init='auto')
+    kmeans.fit(data_pca)
+    cluster_labels = kmeans.labels_
+
+    # silhouette score
+    distortions.append(kmeans.inertia_)
+
+plt.plot(range_n_clusters, distortions, 'bx-')
+plt.xlabel('Clusters')
+plt.ylabel('Variance explained')
+plt.title('Elbow method')
+plt.show()
+
+# Perform PAM on chosen number of clusters
+pam = KMedoids(n_clusters = 3).fit(data_pca)
+
+# Save labels in a separate object
+labels = pam.labels_
+
+# Plot data split into clusters
+unique_labels = set(labels)
+colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
+
+for k, col in zip(unique_labels, colors):
+    class_member_mask = labels == k
+    xy = data_pca[class_member_mask]
+    plt.plot(
+        xy[:, 0],
+        xy[:, 1],
+        "o",
+        markerfacecolor=tuple(col),
+        markeredgecolor="k",
+        markersize=6)
+
+plt.plot(
+    pam.cluster_centers_[:, 0],
+    pam.cluster_centers_[:, 1],
+    "o",
+    markerfacecolor="cyan",
+    markeredgecolor="k",
+    markersize=6,
+    label="Medoids")
+
+plt.legend(loc='best')
+plt.title("CLusters obtained using PAM")
+
+# Append labels to original dataset
+raw_data['Assigned_label'] = labels
+
+# Data for first cluster
+display(raw_data[raw_data['Assigned_label']==0])
+
+# Data for second cluster
+display(raw_data[raw_data['Assigned_label']==1])
+
+# Data for third cluster
+display(raw_data[raw_data['Assigned_label']==2])
